@@ -6,6 +6,14 @@ Rename television season episodes and extras organized by disc (folders)
 * ffmpeg
 * ffmpeg-python
 
+## Features
+* Auto-detects episode length
+* Renames non-episodes to s00e## (example: s00e01)
+* Detects multi-episodes within a single file (works best when provided an episode length)
+* Attempts to find next disc/season to continue renaming
+* Automatically provides show name from folder name if one is not provided via arguments
+* Aggregate epsisodes from multiple discs to a single folder per season (-o argument)
+
 ## Arguments
 ```
 Options:
