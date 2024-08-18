@@ -538,7 +538,6 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
       if str_season.isnumeric():
          if bool_title_autodetect == True:
             auto_title = folder[folder.rfind("\\")+1:folder.rfind(str_season_match)]
-
       
       if bool_season_prompt == True:
         str_season = input("What is the season number?")
@@ -640,7 +639,11 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
         tmp_val = get_ini_value("config.ini", "season_rename", "dir", "") #get path from ini
         if len(tmp_val) > 1 and tmp_val[0:len(tmp_val) -1] in dir_name: #one char diff
            bool_season_match = True
-  
+        elif str_truncate in tmp_val: #is there text after the season episode details
+           folder_tmp = tmp_val[0:tmp_val.find(tmp_val)] #truncate
+           if folder[0:tmp_val.find(tmp_val)] == folder_tmp:
+              bool_season_match = True
+           
       #Think it is best to add arg for a season number and check here if one was provided to force a season match otherwise ignore this match
       if opts.season and (f"s{season}" in folder.lower() or f"s0{season}" in folder.lower() or f"season {season}" in folder.lower()):
         print("season match")
