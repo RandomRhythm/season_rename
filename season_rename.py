@@ -29,7 +29,7 @@ bool_low_prev_special = True # large files that have a low size prevalence are m
 bool_mtime = True #use the OS filesystem modified time to sort the files
 bool_reverse = False #reverse the file sort for naming. Default: False
 bool_force_all = False #testing only
-bool_verbose = False #output length and time diff
+bool_verbose = False #output length and time diff 
 
 
 ## -- INI List Loader -- ##
@@ -100,6 +100,19 @@ if opts.folder:
   folder = opts.folder
 if folder == "":
     folder = input("Enter your folder path: ")
+int_season_episodes = 0
+multi_season_match = re.search(r"SEASON_(\d)_AND_(\d)_", folder)
+def get_season_episode_count(str_season):
+  str_response = input(f"This folder appears to contain multiple seasons. How many episodes are in season {str_season}? ")
+  if str_response.isnumeric():
+     str_response = int(str_response)
+     return str_response
+  else:
+    print("invalid episode count")
+    raise ValueError("invalid episode count")
+
+
+
 if opts.episode_len:
   extras_clipping_length = opts.episode_len
 if opts.new:
@@ -123,10 +136,15 @@ if opts.variance:
     clipping_time_variance = int(variance)
 
 
-def is_play_all(time_length, list_size, list_time, str_episode, episode): #simple code to detect playall mixed with individual episodes
+
+
+def is_play_all(time_length, list_size, list_time, str_episode, episode, int_starting_episode_number): #simple code to detect playall mixed with individual episodes
     episode_times = None
     ecount = 0
-    e_count = episode - int(str_episode) + 1
+    #the following may have worked if season is not spread across discs but commenting and updating with new logic
+    #e_count = episode - int(str_episode) + 1
+    #changing to use the starting episode
+    e_count = episode - int_starting_episode_number + 1
     bool_timematch = False
     for e_time in list_time:
         if time_length != e_time:
@@ -278,7 +296,7 @@ def logToFile(strfilePathOut, strDataToLog, boolDeleteFile, strWriteMode):
 
 #MAIN FUNCTION
 def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clipping_time_variance, title, episode,special,out_location):
-    global os,bool_ffmpeg, bool_title_filename,bool_bluray,bool_prevalence,new_clipping_length
+    global os,bool_ffmpeg, bool_title_filename,bool_bluray,bool_prevalence, bool_low_prev_special,new_clipping_length, int_season_episodes, multi_season_match
     #find the largest file and then find the lowest file size within 45 MB of it and then see if prevalence has a lower threshold (bonus extras can be longer/bigger than the episode throwing everything off)
     upper_size = extras_clipping_size
     lower_size = extras_clipping_size
@@ -300,7 +318,7 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
             metadata = ffmpeg.probe(file_location)["streams"]
         except:
            metadata = ""
-           print("Failed to probe media using ffmpeg. Do you have the binaries installed?")
+           print("Failed to get probe media using ffmpeg. Do you have the binaries installed?")
            bool_ffmpeg = False
         if len(metadata) > 0 and 'tags' in metadata[0]:
             language = metadata[0]['tags']['language']
@@ -427,7 +445,7 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
     #---- end size and length calculations -----
 
 
-    if bool_found_episode == False and (bool_found_episode_time == False or not bool_ffmpeg) and bool_prevalence == False: #used for file size episode autodetect
+    if bool_found_episode == False and (not bool_ffmpeg or bool_found_episode_time == False) and bool_prevalence == False: #used for file size episode autodetect
        bool_prevalence = query_yes_no("No epsisodes found. Would you like to attempt automatic identification?")
     else: #size limit should have triggered a multi-episode so else here
        large_vs_agg_diff = get_diff(upper_size,episode_bytes)
@@ -472,13 +490,17 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
            if str_number.isnumeric():
               return int(str_number)
            elif tmp_season_lable[3:].find(disc_id) > 0:
-            return disc_num(disc_id, tmp_season_lable[3:]) 
+            return disc_num(disc_id, tmp_season_lable[3:])
         return(-1) 
 
     bool_season_disc_match = False
     str_season = ""
     auto_title = ""
     bool_season_prompt = False
+    if (bool_continue == False or int_season_episodes == 0) and multi_season_match: #regex found season number
+      int_season_episodes = get_season_episode_count(multi_season_match.group(1))
+      
+
     if bool_continue == True:
 
       #grab season from folder name
@@ -488,6 +510,12 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
       bool_season_match = False
       tmp_title = get_ini_value("config.ini", "season_rename", "title", title)
       tmp_dir = get_ini_value("config.ini", "season_rename", "dir", "")
+      season_episode_count = get_ini_value("config.ini", "season_rename", "season_episode_count", "")
+      int_season_episodes = season_episode_count if season_episode_count.isnumeric() else int_season_episodes
+      if not isinstance(int_season_episodes, int) and int_season_episodes.isnumeric(): 
+        int_season_episodes = int(int_season_episodes) 
+      elif not isinstance(int_season_episodes, int):
+        int_season_episodes = 0
       str_season_match = "_S"
       if "_S" in folder:
          str_season_match = "_S"
@@ -512,8 +540,11 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
            offset = 0 #utilized for _S1D1 vs. _S1_D1
            str_season = "season identification"
            tmp_season_lable = folder[folder.find(str_season_match):]
-           
-           if len(tmp_season_lable) > len(str_season_match) +3:
+           str_regx = r"SEASON_(\d)" + "_AND_" + str(season)
+           result = re.search(r"SEASON_(\d)" + "_AND_" + str(season) , folder)
+           if result: #regex found season number
+             str_season = str(season)
+           elif len(tmp_season_lable) > len(str_season_match) +3:
               str_season = tmp_season_lable[len(str_season_match): len(str_season_match)+1]
            if len(tmp_season_lable) == len(str_season_match) +3:
               str_season = tmp_season_lable[len(str_season_match): len(str_season_match)+1]
@@ -557,34 +588,36 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
         li = s.rsplit(old, occurrence)
         return new.join(li)
 
-      
+      def disc_identification(folder):
+        str_truncate = "Disc "
+        int_disc = disc_num(str_truncate, folder)
+        if int_disc < 0:
+           str_truncate = "Disc"
+           int_disc = disc_num(str_truncate, folder)
+        if int_disc < 0:
+           str_truncate = "DISC"
+           int_disc = disc_num(str_truncate, folder)
+        if int_disc < 0:
+           str_truncate = "DISC_"
+           int_disc = disc_num(str_truncate, folder)
+        if int_disc < 0:
+           str_truncate = "Disc_"
+           int_disc = disc_num(str_truncate, folder)
+        if int_disc < 0:
+          int_disc = disc_num("_D", folder)
+          str_truncate = "_D"
+        if int_disc < 0:
+          int_disc = disc_num("D", folder)
+          str_truncate = "D"
+        if int_disc < 0:
+          int_disc = disc_num("d", folder)
+          str_truncate = "d"
+        if int_disc < 0:
+          int_disc = disc_num("BD", folder)
+          str_truncate = "BD"
+        return int_disc, str_truncate
+      int_disc, str_truncate = disc_identification(folder)
 
-      str_truncate = "Disc "
-      int_disc = disc_num(str_truncate, folder)
-      if int_disc < 0:
-         str_truncate = "Disc"
-         int_disc = disc_num(str_truncate, folder)
-      if int_disc < 0:
-         str_truncate = "DISC"
-         int_disc = disc_num(str_truncate, folder)
-      if int_disc < 0:
-         str_truncate = "DISC_"
-         int_disc = disc_num(str_truncate, folder)
-      if int_disc < 0:
-         str_truncate = "Disc_"
-         int_disc = disc_num(str_truncate, folder)
-      if int_disc < 0:
-        int_disc = disc_num("_D", folder)
-        str_truncate = "_D"
-      if int_disc < 0:
-        int_disc = disc_num("D", folder)
-        str_truncate = "D"
-      if int_disc < 0:
-        int_disc = disc_num("d", folder)
-        str_truncate = "d"
-      if int_disc < 0:
-        int_disc = disc_num("BD", folder)
-        str_truncate = "BD"
         
       if int_disc > 0: #the following variables will be used at the end to determine if the next disc is available for autocontinue
           next_disc = int_disc+1
@@ -619,7 +652,7 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
 
          if int_disc > 0:
             tmp_dir = get_ini_value("config.ini", "season_rename", "dir", title)
-            int_old_disc = disc_num("D", tmp_dir)
+            int_old_disc,_ = disc_identification(tmp_dir)
             if int_old_disc > -1 and int_disc > int_old_disc:
                 print("Season next disc match")
                 bool_season_disc_match = True
@@ -629,9 +662,9 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
             if str_season.isnumeric(): #if we have a season identified use that
                 season = int(str_season)
             
-#if bool_season_prompt == True and int_disc > 1 and episode == 1: #not first disc but we are at first episode
-#There is no way to know if we are at the right episode number unless we are at season 1 disc 1
-# if disc >1 and episode > 1 then this is likely a continuation of the same season and no need to prompt
+    #if bool_season_prompt == True and int_disc > 1 and episode == 1: #not first disc but we are at first episode
+    #There is no way to know if we are at the right episode number unless we are at season 1 disc 1
+    # if disc >1 and episode > 1 then this is likely a continuation of the same season and no need to prompt
       dir_name = ""
       if "\\" in folder:
         dir_list = folder.split("\\")
@@ -639,9 +672,10 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
         tmp_val = get_ini_value("config.ini", "season_rename", "dir", "") #get path from ini
         if len(tmp_val) > 1 and tmp_val[0:len(tmp_val) -1] in dir_name: #one char diff
            bool_season_match = True
-        elif str_truncate in tmp_val: #is there text after the season episode details
-           folder_tmp = tmp_val[0:tmp_val.find(tmp_val)] #truncate
+        elif str_truncate in tmp_val:
+           folder_tmp = tmp_val[0:tmp_val.find(tmp_val)]
            if folder[0:tmp_val.find(tmp_val)] == folder_tmp:
+
               bool_season_match = True
            
       #Think it is best to add arg for a season number and check here if one was provided to force a season match otherwise ignore this match
@@ -697,10 +731,17 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
             str_numeric = f"0{str_numeric}"
         return str_numeric
 
-    str_folder_pt1 = folder[0:folder.rfind(str_truncate)]
-    next_season_folder = rreplace(str_folder_pt1, str_season, str((season +1)),1) + rreplace(folder[folder.rfind(str_truncate):], str(int_disc),"1",1)
-    str_folder_pt2 =  rreplace(folder[folder.rfind(str_truncate):],str(int_disc),str(next_disc),1)
-    next_folder = f'{str_folder_pt1}{str_folder_pt2}'
+    if int_season_episodes == 0: # normal season folder
+      str_folder_pt1 = folder[0:folder.rfind(str_truncate)]
+      next_season_folder = rreplace(str_folder_pt1, str_season, str((season +1)),1) + rreplace(folder[folder.rfind(str_truncate):], str(int_disc),"1",1)
+      str_folder_pt2 =  rreplace(folder[folder.rfind(str_truncate):],str(int_disc),str(next_disc),1)
+      next_folder = f'{str_folder_pt1}{str_folder_pt2}'
+    else: # would need to know how many episodes in both seasons to attempt to auto-detect next season folder. For now just use the current season
+      str_folder_pt1 = folder[0:folder.rfind(str_truncate)]
+      next_season_folder = str_folder_pt1 + rreplace(folder[folder.rfind(str_truncate):], str(int_disc),"1",1)
+      str_folder_pt2 =  rreplace(folder[folder.rfind(str_truncate):],str(int_disc),str(next_disc),1)
+      next_folder = f'{str_folder_pt1}{str_folder_pt2}'
+
     str_season = format_season_episode_num(season)
     if out_location != "":
         import os
@@ -722,6 +763,7 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
     reset_episode = episode
     str_playall = ""
     dict_prompt = {}
+    original_season = season
     for i in range(0, 2):
         if i == 1:
            special = reset_special
@@ -729,6 +771,8 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
            answer = query_yes_no("Proceed with rename?")
            if answer == False:
               break
+           elif int_season_episodes > 0:
+             season = original_season
         bool_episode_pair = False
         if bool_mtime == True:
            os_list = list(filter(os.path.isfile, glob.glob(folder + "\\*")))
@@ -817,7 +861,7 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
           if len(string_episode) == 1:
             string_episode = f"0{string_episode}"
           if bool_episode_pair == True:
-            bool_playall = is_play_all(time_length, list_size, list_time, string_episode, episode + int_e_count) #is this roughly the other episodes combined?
+            bool_playall = is_play_all(time_length, list_size, list_time, string_episode, episode + int_e_count, reset_episode) #is this roughly the other episodes combined?
             if bool_playall == True:
                str_playall = file_location
                print(f'Play all episode detected and set to skip - {file_location}')
@@ -840,7 +884,7 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
           if bool_multi_episode_detect == True and size ==multi_episode:
              string_episode = string_episode + "-TBD"
           if i ==0:
-             print (f"{filename}={title_string}S{str_season}e{string_episode}.mkv")
+             print (f"{filename}={title_string}S{str_season}e{string_episode}.mkv") #Todo: output filesize and length for better context 
           elif i == 1 and str_playall != file_location:
             os.rename(folder +"\\" + filename, out_location_full +"\\" + f"{title_string}S{str_season}e{string_episode}.mkv")
           if bool_multi_episode_detect == True and size ==multi_episode:
@@ -849,6 +893,14 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
             special +=1
           else:
             episode = episode +1
+          if int_season_episodes > 0 and episode > int_season_episodes:
+            episode = 1
+            season +=1
+            if i == 1:
+              str_season = format_season_episode_num(season)
+              out_location_full = f"{out_location}{f_sep}{title} - S{str_season}"
+              Path(out_location_full).mkdir(parents=True, exist_ok=True)
+              int_season_episodes = get_season_episode_count(str_season)
         if i == 1 and bool_multi_episode_detect == True and multi_episode > 0:
             os.rename(folder +"\\" + f"{title_string}S{str_season}e{reset_episode}-TBD.mkv", folder +"\\" + f"{title_string}S{str_season}e{reset_episode}-e{string_episode}.mkv")
     if answer and bool_continue == True:
@@ -870,7 +922,8 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
        import subprocess
 
        import sys
-
+       if episode >= int_season_episodes: #reset episode count for next season if we have a season episode count. This is used to determine the next season folder if we are doing a multi-disc season and to prompt for next disc or season
+        logToFile("config.ini", f"season_episode_count={0}", False, "a")
        if folder != next_folder and os.path.exists(next_folder ): #prompt for next disc
            arg_directory = f'-d "{next_folder}" '
            arg_season = f'-s {season} '
@@ -878,6 +931,10 @@ def episode_rename(folder, season,extras_clipping_size, extras_clip_time, clippi
        
            answer = query_yes_no("Proceed to next disc?")
            if answer:
+            if int_season_episodes > 0 and original_season != season:
+             int_season_episodes = get_season_episode_count(str(season))
+             if not isinstance(int_season_episodes, int) and int_season_episodes.isnumeric():
+               logToFile("config.ini", f"season_episode_count={int_season_episodes}", False, "a")
             episode_rename(next_folder, season,extras_clipping_size, extras_clip_time,clipping_time_variance,title,episode,special,arg_folder)
        elif os.path.exists(next_season_folder):
 
